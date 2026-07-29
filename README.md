@@ -99,6 +99,17 @@ VS Code를 껐다 켜면 각 프로젝트 터미널에서 돌던 Claude 세션�
 
 **훅 필요**: `UserPromptSubmit`, `PostToolUse` (+ 기능 3의 `Stop`/`Notification`) — [훅 설치](#훅-설치) 참고.
 
+### 7. 최근 세션 조회/복구 (모든 프로젝트)
+
+기능 4가 "끊긴 세션"만 복구하는 것과 달리, **최근 실행한 모든 세션**을 워크스페이스 폴더와 무관하게 최신순으로 보여주고 아무 세션이나 다시 이어갈 수 있다. 어제 다른 폴더에서 하던 대화를 오늘 이 창에서 이어가는 용도.
+
+- 진입점: 커맨드 팔레트 `Claude Code Companion: 최근 Claude 세션 조회/복구 (모든 프로젝트)` 또는 상태 표시줄 프로젝트 메뉴의 "최근 Claude 세션 복구"
+- 목록에는 프로젝트명 · 마지막 사용 시각 · 폴더 경로 · 첫 프롬프트 미리보기가 표시되고, 프롬프트 내용으로도 검색된다
+- 선택하면 해당 폴더에 터미널을 만들어 `claude --resume <session_id>` 실행 (`sessionRestore.claudeCommand` 설정 재사용)
+- 데이터 소스는 Claude Code가 직접 남기는 대화 기록(`~/.claude/projects/<인코딩된 경로>/<session_id>.jsonl`) — **훅 불필요**. 최신순 30개까지 표시.
+- 프롬프트가 하나도 없는 빈 세션과 폴더가 삭제된 프로젝트의 세션은 제외
+- 해당 폴더에 이미 claude가 돌고 있으면 ⚠️로 표시된다 — 같은 세션을 중복으로 열지 않도록 주의
+
 ## 훅 설치
 
 알림(기능 3)·세션 복구(기능 4)·상태 추적(기능 6)은 Claude Code 훅이 이벤트를 파일로 남겨줘야 동작한다. 커맨드 팔레트에서 **`Claude Code Companion: Claude Code 훅 설치/업데이트`** 를 실행하면 `~/.claude/settings.json`에 아래 훅 6개가 자동으로 추가/갱신된다.
@@ -126,7 +137,7 @@ VS Code를 껐다 켜면 각 프로젝트 터미널에서 돌던 Claude 세션�
 
 ```bash
 npx --yes @vscode/vsce package
-code --install-extension vscode-claude-code-companion-0.12.0.vsix
+code --install-extension vscode-claude-code-companion-0.14.0.vsix
 ```
 
 WSL 환경이라면 VS Code 통합 터미널(WSL)에서 실행해야 WSL 쪽에 설치된다.

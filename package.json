@@ -2,7 +2,7 @@
 	"name": "vscode-claude-code-companion",
 	"displayName": "Claude Code Companion",
 	"description": "Claude Code 멀티 프로젝트 워크플로우를 위한 VS Code 도우미 확장",
-	"version": "0.13.0",
+	"version": "0.14.0",
 	"publisher": "lemondouble",
 	"license": "MIT",
 	"repository": {
@@ -41,6 +41,10 @@
 			{
 				"command": "claudeCodeCompanion.restoreSessions",
 				"title": "Claude Code Companion: Claude 세션 복구"
+			},
+			{
+				"command": "claudeCodeCompanion.resumeRecentSession",
+				"title": "Claude Code Companion: 최근 Claude 세션 조회/복구 (모든 프로젝트)"
 			},
 			{
 				"command": "claudeCodeCompanion.addToClaudePath",

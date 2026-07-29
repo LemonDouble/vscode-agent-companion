@@ -173,7 +173,8 @@ async function projectActions() {
 		[
 			{ label: `$(search) ${name}에서 텍스트 검색`, action: findInProject },
 			{ label: `$(go-to-file) ${name}에서 파일 열기`, action: openFileInProject },
-			{ label: '$(folder-opened) 다른 프로젝트로 전환...', action: switchProject }
+			{ label: '$(folder-opened) 다른 프로젝트로 전환...', action: switchProject },
+			{ label: '$(history) 최근 Claude 세션 복구 (모든 프로젝트)...', action: resumeRecentSessionCommand }
 		],
 		{ placeHolder: `현재 프로젝트: ${proj.root.fsPath}` }
 	);
@@ -653,16 +654,19 @@ function discardSessionFiles(items) {
 	}
 }
 
-function launchRestoredSessions(items) {
+function launchClaudeResume(cwd, sessionId) {
 	const claudeCmd = config().get('sessionRestore.claudeCommand', 'claude');
+	const terminal = vscode.window.createTerminal({
+		name: path.basename(cwd),
+		cwd: vscode.Uri.file(cwd)
+	});
+	terminal.show(true);
+	terminal.sendText(`${claudeCmd} --resume ${sessionId}`);
+}
+
+function launchRestoredSessions(items) {
 	for (const item of items) {
-		const s = item.latest;
-		const terminal = vscode.window.createTerminal({
-			name: path.basename(s.cwd),
-			cwd: vscode.Uri.file(s.cwd)
-		});
-		terminal.show(true);
-		terminal.sendText(`${claudeCmd} --resume ${s.sessionId}`);
+		launchClaudeResume(item.latest.cwd, item.latest.sessionId);
 	}
 	discardSessionFiles(items);
 }
@@ -1027,6 +1031,165 @@ async function promptInstallHooksOnStartup(context) {
 }
 
 // ============================================================
+// 기능 8: 최근 세션 전체 조회/복구
+// Claude Code가 직접 남기는 대화 기록(~/.claude/projects/<인코딩된 경로>/
+// <session_id>.jsonl — 파일명이 곧 세션 id, --resume 시 같은 파일에 이어
+// 씀)을 읽어, 워크스페이스와 무관하게 최근 세션을 최신순으로 보여주고
+// 선택하면 해당 폴더 터미널에서 --resume 한다. 훅 불필요.
+// ============================================================
+
+const CLAUDE_PROJECTS_DIR = path.join(os.homedir(), '.claude', 'projects');
+const RECENT_SESSIONS_LIMIT = 30;
+// 첫 프롬프트는 보통 파일 첫머리에 있다 — 전체 파싱 대신 앞부분만 읽음
+const SESSION_HEAD_BYTES = 256 * 1024;
+
+function listRecentSessionFiles(limit) {
+	let projectDirNames;
+	try {
+		projectDirNames = fs.readdirSync(CLAUDE_PROJECTS_DIR);
+	} catch {
+		return [];
+	}
+	const files = [];
+	for (const dirName of projectDirNames) {
+		let names;
+		try {
+			names = fs.readdirSync(path.join(CLAUDE_PROJECTS_DIR, dirName));
+		} catch {
+			continue;
+		}
+		for (const name of names) {
+			if (!name.endsWith('.jsonl')) {
+				continue;
+			}
+			const file = path.join(CLAUDE_PROJECTS_DIR, dirName, name);
+			try {
+				const stat = fs.statSync(file);
+				if (stat.isFile()) {
+					files.push({ file, sessionId: name.slice(0, -'.jsonl'.length), mtime: stat.mtimeMs });
+				}
+			} catch {
+				// 동시 삭제 등은 무시
+			}
+		}
+	}
+	return files.sort((a, b) => b.mtime - a.mtime).slice(0, limit);
+}
+
+// 세션 기록의 user 항목에서 사람이 쓴 프롬프트 텍스트를 뽑는다.
+// 슬래시 커맨드 기록(<command-name>...)과 툴 결과(content 배열의
+// tool_result)는 제외.
+function userPromptText(message) {
+	if (!message || message.role !== 'user') {
+		return undefined;
+	}
+	let text;
+	if (typeof message.content === 'string') {
+		text = message.content;
+	} else if (Array.isArray(message.content)) {
+		const part = message.content.find((p) => p && p.type === 'text' && typeof p.text === 'string');
+		text = part && part.text;
+	}
+	if (!text || text.startsWith('<command-name>') || text.startsWith('<local-command')) {
+		return undefined;
+	}
+	return text.replace(/\s+/g, ' ').trim();
+}
+
+// 세션 파일 앞부분에서 cwd와 첫 사용자 프롬프트를 뽑는다.
+// 프롬프트가 하나도 없는 세션(열자마자 닫은 빈 세션)은 undefined.
+function readSessionSummary(file) {
+	let head;
+	try {
+		const fd = fs.openSync(file, 'r');
+		try {
+			const buf = Buffer.alloc(SESSION_HEAD_BYTES);
+			const n = fs.readSync(fd, buf, 0, buf.length, 0);
+			head = buf.toString('utf8', 0, n);
+		} finally {
+			fs.closeSync(fd);
+		}
+	} catch {
+		return undefined;
+	}
+	let cwd;
+	let prompt;
+	for (const line of head.split('\n')) {
+		let entry;
+		try {
+			entry = JSON.parse(line);
+		} catch {
+			continue; // 읽기 범위에서 잘린 마지막 줄 등
+		}
+		if (!cwd && typeof entry.cwd === 'string') {
+			cwd = entry.cwd;
+		}
+		if (!prompt && entry.type === 'user' && !entry.isMeta) {
+			prompt = userPromptText(entry.message);
+		}
+		if (cwd && prompt) {
+			break;
+		}
+	}
+	return cwd && prompt ? { cwd, prompt } : undefined;
+}
+
+function formatAgo(ms) {
+	const min = Math.floor(ms / 60000);
+	if (min < 1) {
+		return '방금 전';
+	}
+	if (min < 60) {
+		return `${min}분 전`;
+	}
+	const hours = Math.floor(min / 60);
+	if (hours < 24) {
+		return `${hours}시간 전`;
+	}
+	return `${Math.floor(hours / 24)}일 전`;
+}
+
+const PROMPT_PREVIEW_LENGTH = 100;
+
+function buildRecentSessionItems(limit) {
+	const home = os.homedir();
+	const aliveCwds = new Set(runningClaudeProcs().map((p) => p.cwd));
+	const items = [];
+	for (const f of listRecentSessionFiles(limit)) {
+		const info = readSessionSummary(f.file);
+		if (!info || !fs.existsSync(info.cwd)) {
+			continue; // 빈 세션이거나 폴더가 삭제된 프로젝트
+		}
+		const shortPath = info.cwd.startsWith(home) ? `~${info.cwd.slice(home.length)}` : info.cwd;
+		const running = aliveCwds.has(info.cwd) ? ' · ⚠️ 이 폴더에 실행 중인 claude 있음' : '';
+		items.push({
+			label: `$(history) ${path.basename(info.cwd)}`,
+			description: `${formatAgo(Date.now() - f.mtime)} · ${shortPath}${running}`,
+			detail: info.prompt.slice(0, PROMPT_PREVIEW_LENGTH),
+			cwd: info.cwd,
+			sessionId: f.sessionId
+		});
+	}
+	return items;
+}
+
+async function resumeRecentSessionCommand() {
+	const items = buildRecentSessionItems(RECENT_SESSIONS_LIMIT);
+	if (items.length === 0) {
+		vscode.window.showInformationMessage('최근 Claude 세션 기록이 없습니다.');
+		return;
+	}
+	const picked = await vscode.window.showQuickPick(items, {
+		placeHolder: '최근 Claude 세션 (모든 프로젝트) — 선택하면 해당 폴더 터미널에서 복구',
+		matchOnDescription: true,
+		matchOnDetail: true
+	});
+	if (picked) {
+		launchClaudeResume(picked.cwd, picked.sessionId);
+	}
+}
+
+// ============================================================
 
 function activate(context) {
 	statusItem = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Left, 100);
@@ -1091,6 +1254,7 @@ function activate(context) {
 		vscode.commands.registerCommand('claudeCodeCompanion.openFileInProject', openFileInProject),
 		vscode.commands.registerCommand('claudeCodeCompanion.projectActions', projectActions),
 		vscode.commands.registerCommand('claudeCodeCompanion.restoreSessions', restoreSessionsCommand),
+		vscode.commands.registerCommand('claudeCodeCompanion.resumeRecentSession', resumeRecentSessionCommand),
 		vscode.commands.registerCommand('claudeCodeCompanion.addToClaudePath', addToClaudePath),
 		vscode.commands.registerCommand('claudeCodeCompanion.addSelectionToClaudePath', addSelectionToClaudePath),
 		vscode.commands.registerCommand('claudeCodeCompanion.addDiagnosticsToClaude', addDiagnosticsToClaude),
@@ -1116,5 +1280,16 @@ function deactivate() {}
 module.exports = {
 	activate,
 	deactivate,
-	_test: { deriveProjectRoot, findGitRepos, selectionRef, formatDiagnostics, handleTerminalClose }
+	_test: {
+		deriveProjectRoot,
+		findGitRepos,
+		selectionRef,
+		formatDiagnostics,
+		handleTerminalClose,
+		listRecentSessionFiles,
+		readSessionSummary,
+		userPromptText,
+		formatAgo,
+		buildRecentSessionItems
+	}
 };
