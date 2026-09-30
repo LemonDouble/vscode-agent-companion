@@ -1,13 +1,13 @@
 {
-	"name": "vscode-claude-code-companion",
-	"displayName": "Claude Code Companion",
-	"description": "Claude Code 멀티 프로젝트 워크플로우를 위한 VS Code 도우미 확장",
-	"version": "0.14.0",
+	"name": "vscode-agent-companion",
+	"displayName": "Agent Companion",
+	"description": "Claude Code/Codex 멀티 프로젝트 워크플로우를 위한 VS Code 도우미 확장",
+	"version": "1.0.0",
 	"publisher": "lemondouble",
 	"license": "MIT",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/LemonDouble/vscode-claude-code-companion"
+		"url": "https://github.com/LemonDouble/vscode-agent-companion"
 	},
 	"engines": {
 		"vscode": "^1.93.0"
@@ -22,129 +22,72 @@
 	"contributes": {
 		"commands": [
 			{
-				"command": "claudeCodeCompanion.toggleExplorerSync",
-				"title": "Claude Code Companion: 터미널-탐색기 동기화 켜기/끄기"
+				"command": "agentCompanion.toggleExplorerSync",
+				"title": "Agent Companion: 터미널-탐색기 동기화 켜기/끄기"
 			},
 			{
-				"command": "claudeCodeCompanion.findInProject",
-				"title": "Claude Code Companion: 현재 프로젝트에서 텍스트 검색",
-				"icon": "$(filter)"
+				"command": "agentCompanion.addPathToAiChat",
+				"title": "Add Path to AI Chat"
 			},
 			{
-				"command": "claudeCodeCompanion.openFileInProject",
-				"title": "Claude Code Companion: 현재 프로젝트에서 파일 열기"
+				"command": "agentCompanion.sessions",
+				"title": "Agent Companion: 에이전트 세션 상태"
 			},
 			{
-				"command": "claudeCodeCompanion.projectActions",
-				"title": "Claude Code Companion: 현재 프로젝트 메뉴"
-			},
-			{
-				"command": "claudeCodeCompanion.restoreSessions",
-				"title": "Claude Code Companion: Claude 세션 복구"
-			},
-			{
-				"command": "claudeCodeCompanion.resumeRecentSession",
-				"title": "Claude Code Companion: 최근 Claude 세션 조회/복구 (모든 프로젝트)"
-			},
-			{
-				"command": "claudeCodeCompanion.addToClaudePath",
-				"title": "Add to Claude Path"
-			},
-			{
-				"command": "claudeCodeCompanion.addSelectionToClaudePath",
-				"title": "Add Selection to Claude Path"
-			},
-			{
-				"command": "claudeCodeCompanion.addDiagnosticsToClaude",
-				"title": "Add Diagnostics to Claude Path"
-			},
-			{
-				"command": "claudeCodeCompanion.claudeSessions",
-				"title": "Claude Code Companion: Claude 세션 상태"
-			},
-			{
-				"command": "claudeCodeCompanion.installHooks",
-				"title": "Claude Code Companion: Claude Code 훅 설치/업데이트"
+				"command": "agentCompanion.installHooks",
+				"title": "Agent Companion: Claude Code/Codex 훅 설치/업데이트"
 			}
 		],
 		"menus": {
-			"view/title": [
-				{
-					"command": "claudeCodeCompanion.findInProject",
-					"when": "view == workbench.view.search",
-					"group": "navigation"
-				}
-			],
 			"explorer/context": [
 				{
-					"command": "claudeCodeCompanion.addToClaudePath",
+					"command": "agentCompanion.addPathToAiChat",
 					"group": "navigation@0"
-				}
-			],
-			"editor/context": [
-				{
-					"command": "claudeCodeCompanion.addSelectionToClaudePath",
-					"when": "editorHasSelection",
-					"group": "navigation@0"
-				},
-				{
-					"command": "claudeCodeCompanion.addDiagnosticsToClaude",
-					"group": "navigation@1"
 				}
 			]
 		},
 		"configuration": {
-			"title": "Claude Code Companion",
+			"title": "Agent Companion",
 			"properties": {
-				"claudeCodeCompanion.explorerSync.enabled": {
+				"agentCompanion.explorerSync.enabled": {
 					"type": "boolean",
 					"default": true,
 					"description": "터미널 포커스 시 탐색기를 해당 터미널의 폴더로 이동"
 				},
-				"claudeCodeCompanion.explorerSync.followCd": {
+				"agentCompanion.explorerSync.followCd": {
 					"type": "boolean",
 					"default": true,
 					"description": "활성 터미널 안에서 cd로 폴더를 옮길 때도 탐색기가 따라 이동"
 				},
-				"claudeCodeCompanion.stopNotification.enabled": {
+				"agentCompanion.stopNotification.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Claude Code 응답 완료 시 알림 표시 (Claude Code Stop 훅 설치 필요 — README 참고)"
+					"description": "Claude Code/Codex 응답 완료 시 알림 표시 (훅 설치 필요 — README 참고)"
 				},
-				"claudeCodeCompanion.permissionNotification.enabled": {
+				"agentCompanion.permissionNotification.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "Claude Code가 질문/승인으로 입력을 기다릴 때 알림 표시 (Notification 훅 설치 필요 — README 참고)"
+					"description": "Claude Code/Codex가 질문/승인으로 입력을 기다릴 때 알림 표시 (훅 설치 필요 — README 참고)"
 				},
-				"claudeCodeCompanion.notifications.skipWhenViewing": {
+				"agentCompanion.notifications.skipWhenViewing": {
 					"type": "boolean",
 					"default": false,
 					"description": "해당 프로젝트의 터미널이 활성 터미널이면 알림 생략 (터미널 패널이 닫혀 있어도 생략될 수 있어 기본 꺼짐)"
 				},
-				"claudeCodeCompanion.notifications.sound.enabled": {
+				"agentCompanion.notifications.sound.enabled": {
 					"type": "boolean",
 					"default": true,
 					"description": "알림 표시 시 사운드 재생 (WSL/Windows는 Windows 알림음, macOS는 afplay, Linux는 paplay)"
 				},
-				"claudeCodeCompanion.hooks.checkOnStartup": {
+				"agentCompanion.hooks.checkOnStartup": {
 					"type": "boolean",
 					"default": true,
-					"description": "시작 시 필요한 Claude Code 훅이 설치돼 있고 최신인지 확인하고, 아니면 설치를 제안"
+					"description": "시작 시 필요한 Claude Code/Codex 훅이 설치돼 있고 최신인지 확인하고, 아니면 설치를 제안"
 				},
-				"claudeCodeCompanion.statusTracker.enabled": {
+				"agentCompanion.statusTracker.enabled": {
 					"type": "boolean",
 					"default": true,
-					"description": "프로젝트별 Claude 상태(작업 중/입력 대기/응답 완료)를 상태바에 표시 (UserPromptSubmit/PostToolUse 훅 설치 필요 — README 참고)"
-				},
-				"claudeCodeCompanion.sessionRestore.enabled": {
-					"type": "boolean",
-					"default": true,
-					"description": "시작 시 끊긴 Claude 세션을 발견하면 복구 여부를 물어봄 (SessionStart/SessionEnd 훅 설치 필요 — README 참고)"
-				},
-				"claudeCodeCompanion.sessionRestore.claudeCommand": {
-					"type": "string",
-					"default": "claude",
-					"description": "세션 복구 시 사용할 claude 실행 명령 (--resume <session_id>가 뒤에 붙음)"
+					"description": "프로젝트별 에이전트 상태(작업 중/입력 대기/응답 완료)를 상태바에 표시 (훅 설치 필요 — README 참고)"
 				}
 			}
 		}

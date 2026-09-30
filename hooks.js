@@ -1,46 +1,64 @@
-// Claude Code 훅 명세와 설치/점검 로직 — 이 확장이 필요로 하는 훅의 단일
-// 진실 공급원. vscode 의존성이 없어서 node로 직접 테스트할 수 있다.
+// Claude Code/Codex 훅 명세와 설치/점검 로직 — 이 확장이 필요로 하는 훅의
+// 단일 진실 공급원. vscode 의존성이 없어서 node로 직접 테스트할 수 있다.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const SETTINGS_FILE = path.join(os.homedir(), '.claude', 'settings.json');
-
 // 훅 명세를 바꾸면 반드시 올릴 것 — 시작 시 안내의 "이 버전은 묻지 않음"이
 // 이 버전 단위로 동작해서, 명세가 바뀌면 다시 안내된다.
-const HOOKS_VERSION = 1;
+const HOOKS_VERSION = 3;
 
-// stdin JSON에서 문자열 필드 하나를 뽑는 sed (훅 커맨드는 POSIX sh에서 돈다)
-const sedJsonField = (name) =>
-	`sed -n "s/.*\\"${name}\\"[[:space:]]*:[[:space:]]*\\"\\([^\\"]*\\)\\".*/\\1/p"`;
+// 이벤트 stdin JSON을 에이전트별 companion-events에 저장 (+1시간 지난 파일 정리).
+// 훅은 에이전트가 sh -c로 실행하므로 $PPID = 에이전트 프로세스 PID. 같은
+// 폴더에서 여러 세션을 돌릴 때 cwd만으로는 구분되지 않아 파일명에 함께 남긴다.
+const eventsCommand = (eventsDir) =>
+	`d="${eventsDir}"; mkdir -p "$d"; find "$d" -maxdepth 1 -type f -mmin +60 -delete 2>/dev/null; f="$d/$(date +%s%N)-$$-$PPID"; cat > "$f.tmp" && mv "$f.tmp" "$f.json"`;
 
-// 기능 3/6: 이벤트 stdin JSON을 companion-events에 저장 (+1시간 지난 파일 정리)
-const EVENTS_CMD =
-	'd="$HOME/.claude/companion-events"; mkdir -p "$d"; find "$d" -maxdepth 1 -type f -mmin +60 -delete 2>/dev/null; f="$d/$(date +%s%N)-$$"; cat > "$f.tmp" && mv "$f.tmp" "$f.json"';
+// companion-events를 참조하는 훅 항목 = 이 확장이 관리하는 항목.
+// 별도 마커 없이 경로 참조로 식별해서, 수동 설치된 기존 훅도 관리 대상이 된다.
+const COMPANION_MARKER = '/companion-events';
 
-// 기능 4: 활성 세션 기록 (claude -p 단발 실행은 부모 cmdline으로 감지해 제외)
-const SESSION_START_CMD = `case " $(tr "\\0" " " < /proc/$PPID/cmdline 2>/dev/null)" in *" -p "*|*" --print "*) exit 0;; esac; d="$HOME/.claude/companion-sessions"; mkdir -p "$d"; j="$(cat)"; id=$(printf "%s" "$j" | ${sedJsonField('session_id')}); [ -n "$id" ] && printf "%s" "$j" > "$d/$id.json"; true`;
+const CLAUDE_EVENTS = eventsCommand('$HOME/.claude/companion-events');
+const CODEX_EVENTS = eventsCommand('$HOME/.codex/companion-events');
 
-// 기능 4: 의도적 종료(exit/clear/logout)일 때만 세션 기록 삭제
-const SESSION_END_CMD = `d="$HOME/.claude/companion-sessions"; j="$(cat)"; id=$(printf "%s" "$j" | ${sedJsonField('session_id')}); r=$(printf "%s" "$j" | ${sedJsonField('reason')}); case "$r" in clear|logout|prompt_input_exit) [ -n "$id" ] && rm -f "$d/$id.json";; esac; true`;
-
-const HOOK_SPECS = [
-	{ event: 'Stop', command: EVENTS_CMD },
-	{ event: 'Notification', matcher: 'permission_prompt', command: EVENTS_CMD },
-	{ event: 'UserPromptSubmit', command: EVENTS_CMD },
-	{ event: 'PostToolUse', command: EVENTS_CMD },
-	{ event: 'SessionStart', command: SESSION_START_CMD },
-	{ event: 'SessionEnd', command: SESSION_END_CMD }
+const HOOK_TARGETS = [
+	{
+		agent: 'Claude Code',
+		configDir: path.join(os.homedir(), '.claude'),
+		file: path.join(os.homedir(), '.claude', 'settings.json'),
+		specs: [
+			{ event: 'Stop', command: CLAUDE_EVENTS },
+			{ event: 'Notification', matcher: 'permission_prompt', command: CLAUDE_EVENTS },
+			{ event: 'UserPromptSubmit', command: CLAUDE_EVENTS },
+			{ event: 'PostToolUse', command: CLAUDE_EVENTS }
+		]
+	},
+	{
+		agent: 'Codex',
+		configDir: path.join(os.homedir(), '.codex'),
+		file: path.join(os.homedir(), '.codex', 'hooks.json'),
+		// 신뢰(trust)는 훅 정의의 해시 단위라, 명세가 바뀌면 Codex의 /hooks에서 다시 승인해야 한다
+		requiresTrust: true,
+		specs: [
+			{ event: 'Stop', command: CODEX_EVENTS },
+			{ event: 'PermissionRequest', command: CODEX_EVENTS },
+			{ event: 'UserPromptSubmit', command: CODEX_EVENTS },
+			{ event: 'PostToolUse', command: CODEX_EVENTS }
+		]
+	}
 ];
 
-// companion 디렉토리를 참조하는 훅 항목 = 이 확장이 관리하는 항목.
-// 별도 마커 없이 경로 참조로 식별해서, 수동 설치된 기존 훅도 관리 대상이 된다.
+// 설정 폴더가 없으면 그 에이전트를 쓰지 않는 환경으로 보고 건너뛴다
+function installedTargets(targets = HOOK_TARGETS) {
+	return targets.filter((target) => fs.existsSync(target.configDir));
+}
+
 function isCompanionEntry(entry) {
 	return (
 		!!entry &&
 		Array.isArray(entry.hooks) &&
 		entry.hooks.some(
-			(h) => h && typeof h.command === 'string' && h.command.includes('/.claude/companion-')
+			(hook) => hook && typeof hook.command === 'string' && hook.command.includes(COMPANION_MARKER)
 		)
 	);
 }
@@ -64,8 +82,8 @@ function entryMatchesSpec(entry, spec) {
 	);
 }
 
-// settings.json이 없으면 빈 설정으로 시작, 파싱 실패는 그대로 던짐 (덮어쓰기 방지)
-function readSettings(file = SETTINGS_FILE) {
+// 파일이 없으면 빈 설정으로 시작, 파싱 실패는 그대로 던짐 (덮어쓰기 방지)
+function readSettings(file) {
 	let raw;
 	try {
 		raw = fs.readFileSync(file, 'utf8');
@@ -76,10 +94,10 @@ function readSettings(file = SETTINGS_FILE) {
 }
 
 // 명세와 어긋나는(없거나, 구버전이거나, 중복인) 이벤트 목록
-function findStaleEvents(settings) {
+function findStaleEvents(settings, specs) {
 	const hooks = (settings && settings.hooks) || {};
 	const stale = [];
-	for (const spec of HOOK_SPECS) {
+	for (const spec of specs) {
 		const ours = (hooks[spec.event] || []).filter(isCompanionEntry);
 		if (ours.length !== 1 || !entryMatchesSpec(ours[0], spec)) {
 			stale.push(spec.event);
@@ -90,14 +108,14 @@ function findStaleEvents(settings) {
 
 // settings 객체를 제자리에서 수정하고 변경 내역을 돌려준다.
 // companion 항목이 아닌 훅(사용자의 다른 훅)은 순서 포함 그대로 보존.
-function mergeCompanionHooks(settings) {
+function mergeCompanionHooks(settings, specs) {
 	const hooks = settings.hooks || (settings.hooks = {});
 	const added = [];
 	const updated = [];
-	for (const spec of HOOK_SPECS) {
+	for (const spec of specs) {
 		const entries = hooks[spec.event] || (hooks[spec.event] = []);
-		const firstIdx = entries.findIndex(isCompanionEntry);
-		if (firstIdx === -1) {
+		const firstIndex = entries.findIndex(isCompanionEntry);
+		if (firstIndex === -1) {
 			entries.push(specEntry(spec));
 			added.push(spec.event);
 			continue;
@@ -107,8 +125,8 @@ function mergeCompanionHooks(settings) {
 			continue; // 이미 최신
 		}
 		// 첫 companion 항목 자리에 최신 명세를 넣고 중복은 제거
-		const rest = entries.filter((e) => !isCompanionEntry(e));
-		rest.splice(Math.min(firstIdx, rest.length), 0, specEntry(spec));
+		const rest = entries.filter((entry) => !isCompanionEntry(entry));
+		rest.splice(Math.min(firstIndex, rest.length), 0, specEntry(spec));
 		hooks[spec.event] = rest;
 		updated.push(spec.event);
 	}
@@ -116,26 +134,24 @@ function mergeCompanionHooks(settings) {
 }
 
 // 훅을 설치/갱신하고 결과를 돌려준다. 변경이 없으면 파일을 건드리지 않는다.
-function installCompanionHooks(file = SETTINGS_FILE) {
-	const settings = readSettings(file);
-	const { added, updated } = mergeCompanionHooks(settings);
+function installCompanionHooks(target) {
+	const settings = readSettings(target.file);
+	const { added, updated } = mergeCompanionHooks(settings, target.specs);
 	let backup;
 	if (added.length > 0 || updated.length > 0) {
-		if (fs.existsSync(file)) {
-			backup = `${file}.bak`;
-			fs.copyFileSync(file, backup);
-		} else {
-			fs.mkdirSync(path.dirname(file), { recursive: true });
+		if (fs.existsSync(target.file)) {
+			backup = `${target.file}.bak`;
+			fs.copyFileSync(target.file, backup);
 		}
-		fs.writeFileSync(file, `${JSON.stringify(settings, null, 2)}\n`);
+		fs.writeFileSync(target.file, `${JSON.stringify(settings, null, 2)}\n`);
 	}
-	return { added, updated, backup, file };
+	return { added, updated, backup };
 }
 
 module.exports = {
-	SETTINGS_FILE,
 	HOOKS_VERSION,
-	HOOK_SPECS,
+	HOOK_TARGETS,
+	installedTargets,
 	readSettings,
 	findStaleEvents,
 	mergeCompanionHooks,
