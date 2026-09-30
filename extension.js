@@ -203,27 +203,42 @@ function agentPidFromEventFilename(agent, file) {
 
 function isCodexAutoReview(event) {
 	// Codex 훅에는 승인 주체가 없어서 세션 기록의 해당 turn_context를 확인한다.
+	let transcriptFile;
 	try {
-		const lines = fs.readFileSync(event.transcript_path, 'utf8').split('\n');
-		for (const line of lines.reverse()) {
-			if (!line.includes('"turn_context"')) {
-				continue;
+		transcriptFile = fs.openSync(event.transcript_path, 'r');
+		let position = fs.fstatSync(transcriptFile).size;
+		const buffer = Buffer.alloc(64 * 1024);
+		let partialLine = '';
+		while (position > 0) {
+			const length = Math.min(buffer.length, position);
+			position -= length;
+			const bytesRead = fs.readSync(transcriptFile, buffer, 0, length, position);
+			const lines = (buffer.toString('utf8', 0, bytesRead) + partialLine).split('\n');
+			partialLine = position > 0 ? lines.shift() : '';
+			for (const line of lines.reverse()) {
+				if (!line.includes('"turn_context"')) {
+					continue;
+				}
+				let record;
+				try {
+					record = JSON.parse(line);
+				} catch {
+					continue;
+				}
+				if (record.type !== 'turn_context' || !record.payload) {
+					continue;
+				}
+				if (event.turn_id && record.payload.turn_id !== event.turn_id) {
+					continue;
+				}
+				return record.payload.approvals_reviewer === 'auto_review';
 			}
-			let record;
-			try {
-				record = JSON.parse(line);
-			} catch {
-				continue;
-			}
-			if (record.type !== 'turn_context' || !record.payload) {
-				continue;
-			}
-			if (event.turn_id && record.payload.turn_id !== event.turn_id) {
-				continue;
-			}
-			return record.payload.approvals_reviewer === 'auto_review';
 		}
-	} catch {}
+	} catch {} finally {
+		if (transcriptFile !== undefined) {
+			fs.closeSync(transcriptFile);
+		}
+	}
 	return false;
 }
 

@@ -2,7 +2,7 @@
 	"name": "vscode-agent-companion",
 	"displayName": "Agent Companion",
 	"description": "Claude Code/Codex 멀티 프로젝트 워크플로우를 위한 VS Code 도우미 확장",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"publisher": "lemondouble",
 	"license": "MIT",
 	"repository": {
