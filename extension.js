@@ -201,6 +201,32 @@ function agentPidFromEventFilename(agent, file) {
 	return pid && isAgentProc(agent, pid) ? pid : undefined;
 }
 
+function isCodexAutoReview(event) {
+	// Codex 훅에는 승인 주체가 없어서 세션 기록의 해당 turn_context를 확인한다.
+	try {
+		const lines = fs.readFileSync(event.transcript_path, 'utf8').split('\n');
+		for (const line of lines.reverse()) {
+			if (!line.includes('"turn_context"')) {
+				continue;
+			}
+			let record;
+			try {
+				record = JSON.parse(line);
+			} catch {
+				continue;
+			}
+			if (record.type !== 'turn_context' || !record.payload) {
+				continue;
+			}
+			if (event.turn_id && record.payload.turn_id !== event.turn_id) {
+				continue;
+			}
+			return record.payload.approvals_reviewer === 'auto_review';
+		}
+	} catch {}
+	return false;
+}
+
 async function handleCompanionEvent(agent, file, notify = true) {
 	let event;
 	try {
@@ -217,6 +243,10 @@ async function handleCompanionEvent(agent, file, notify = true) {
 		return;
 	}
 	fs.unlink(file, () => {});
+
+	if (agent.id === 'codex' && event.hook_event_name === 'PermissionRequest' && isCodexAutoReview(event)) {
+		return;
+	}
 
 	const state = EVENT_STATES[event.hook_event_name];
 	if (!state) {
