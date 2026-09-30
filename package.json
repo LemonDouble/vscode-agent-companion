@@ -22,10 +22,6 @@
 	"contributes": {
 		"commands": [
 			{
-				"command": "agentCompanion.toggleExplorerSync",
-				"title": "Agent Companion: 터미널-탐색기 동기화 켜기/끄기"
-			},
-			{
 				"command": "agentCompanion.addPathToAiChat",
 				"title": "Add Path to AI Chat"
 			},
@@ -68,11 +64,6 @@
 					"type": "boolean",
 					"default": true,
 					"description": "Claude Code/Codex가 질문/승인으로 입력을 기다릴 때 알림 표시 (훅 설치 필요 — README 참고)"
-				},
-				"agentCompanion.notifications.skipWhenViewing": {
-					"type": "boolean",
-					"default": false,
-					"description": "해당 프로젝트의 터미널이 활성 터미널이면 알림 생략 (터미널 패널이 닫혀 있어도 생략될 수 있어 기본 꺼짐)"
 				},
 				"agentCompanion.notifications.sound.enabled": {
 					"type": "boolean",
